@@ -127,6 +127,7 @@ One static HTML file. No server, no database, no build step, no API keys. Open i
 <div align="center">
 <table>
 <tr>
+
 <td width="50%" align="center">
 <img src="./network%20view.png" width="100%">
 <br>
@@ -135,11 +136,12 @@ One static HTML file. No server, no database, no build step, no API keys. Open i
 
 <td width="50%" align="center">
 <a href="./Dossier%20Report%20%E2%80%94%20Rohan%20Solanki.pdf">
-📄 View Dossier Report
+<img src="./dossier-bg.png" width="100%" alt="View Dossier Report">
 </a>
 <br>
 <sub>A full investigative dossier and the generated 4-page report</sub>
 </td>
+
 </tr>
 </table>
 </div>
