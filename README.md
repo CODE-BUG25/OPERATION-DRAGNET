@@ -130,16 +130,36 @@ One static HTML file. No server, no database, no build step, no API keys. Open i
 
 <td width="50%" align="center">
 <img src="./network%20view.png" width="100%">
-<br>
-<sub>The main network view — hover any node to reveal its label and connections</sub>
+<br><br>
+<sub><b>NETWORK VIEW</b></sub><br>
+<sub>The main network view — hover any node to reveal its label and connections.</sub>
 </td>
 
-<td width="50%" align="center">
+<td width="50%" align="center" bgcolor="#0a0b0d">
+
+<br><br>
+
+<h2>📄</h2>
+
+<h2>
 <a href="./Dossier%20Report%20%E2%80%94%20Rohan%20Solanki.pdf">
-<img src="./dossier-bg.png" width="100%" alt="View Dossier Report">
+View Dossier Report →
 </a>
-<br>
+</h2>
+
+<p>
 <sub>A full investigative dossier and the generated 4-page report</sub>
+</p>
+
+<br>
+
+<p>
+<b>🔍 INVESTIGATION DOSSIER</b><br>
+<sub>Evidence • Connections • Findings • Report</sub>
+</p>
+
+<br><br>
+
 </td>
 
 </tr>
