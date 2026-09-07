@@ -127,8 +127,19 @@ One static HTML file. No server, no database, no build step, no API keys. Open i
 <div align="center">
 <table>
 <tr>
-<td width="50%" align="center"><img src="https://via.placeholder.com/560x360/0a0b0d/e8a33d?text=Network+Graph+View" width="100%"><br><sub>The main network view — hover any node to reveal its label and connections</sub></td>
-<td width="50%" align="center"><img src="https://via.placeholder.com/560x360/d9d0ba/231f18?text=Dossier+%2B+Report" width="100%"><br><sub>A full investigative dossier, and the generated 4-page report</sub></td>
+<td width="50%" align="center">
+<img src="./network%20view.png" width="100%">
+<br>
+<sub>The main network view — hover any node to reveal its label and connections</sub>
+</td>
+
+<td width="50%" align="center">
+<a href="./Dossier%20Report%20%E2%80%94%20Rohan%20Solanki.pdf">
+📄 View Dossier Report
+</a>
+<br>
+<sub>A full investigative dossier and the generated 4-page report</sub>
+</td>
 </tr>
 </table>
 </div>
