@@ -1,0 +1,1431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPERATION DRAGNET — Cross-Case Network Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root{
+    --void:#0a0b0d;
+    --panel:#131519;
+    --panel-2:#191c21;
+    --wire:#2b2f36;
+    --wire-soft:#1e2126;
+    --phosphor:#e8a33d;
+    --phosphor-dim:#8a6428;
+    --alert:#c4453a;
+    --alert-soft:#472521;
+    --tan:#d9d0ba;
+    --tan-dim:#a99f86;
+    --ghost:#6b7280;
+    --ink:#e7e5e0;
+    --ink-dim:#9b9c9f;
+    --good:#4fae7a;
+    --mono:'IBM Plex Mono', ui-monospace, monospace;
+    --sans:'IBM Plex Sans', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--void);
+    color:var(--ink);
+    font-family:var(--sans);
+    overflow:hidden;
+  }
+  ::selection{background:var(--phosphor-dim);color:#fff;}
+
+  /* ambient scanline texture */
+  .noise-layer{
+    position:fixed;inset:0;pointer-events:none;z-index:1;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px),
+      radial-gradient(ellipse at 50% 0%, rgba(232,163,61,0.04), transparent 60%);
+  }
+
+  .app{
+    position:relative;z-index:2;
+    height:100vh;
+    display:grid;
+    grid-template-rows:auto 1fr;
+  }
+
+  /* ===== TOPBAR ===== */
+  .topbar{
+    display:flex;align-items:center;gap:28px;
+    padding:14px 22px;
+    background:linear-gradient(180deg,#101216,#0d0f12);
+    border-bottom:1px solid var(--wire);
+    position:relative;
+  }
+  .topbar::after{
+    content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:linear-gradient(90deg, transparent, var(--phosphor-dim) 20%, var(--phosphor) 50%, var(--phosphor-dim) 80%, transparent);
+    opacity:0.55;
+  }
+  .brand{display:flex;flex-direction:column;gap:2px;min-width:220px;}
+  .brand .stamp{
+    font-family:var(--mono);font-size:10px;letter-spacing:0.18em;color:var(--phosphor-dim);
+    text-transform:uppercase;
+  }
+  .brand h1{
+    margin:0;font-family:var(--mono);font-weight:700;font-size:19px;letter-spacing:0.05em;
+    color:var(--ink);
+  }
+  .brand h1 span{color:var(--phosphor);}
+  .brand .sub{font-size:11px;color:var(--ink-dim);letter-spacing:0.01em;}
+
+  .toggle-wrap{
+    display:flex;align-items:center;gap:14px;
+    margin-left:auto;
+  }
+  .toggle-label{font-family:var(--mono);font-size:10.5px;letter-spacing:0.1em;color:var(--ink-dim);text-transform:uppercase;}
+  .segmented{
+    display:flex;background:var(--panel);border:1px solid var(--wire);border-radius:8px;padding:3px;position:relative;
+  }
+  .segmented button{
+    appearance:none;border:none;background:transparent;color:var(--ink-dim);
+    font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:0.02em;
+    padding:9px 16px;border-radius:6px;cursor:pointer;transition:color .25s ease;position:relative;z-index:2;
+    white-space:nowrap;
+  }
+  .segmented button.active{color:#0a0b0d;}
+  .segmented .thumb{
+    position:absolute;top:3px;bottom:3px;left:3px;
+    width:calc(50% - 3px);
+    background:linear-gradient(180deg,#f0b559,var(--phosphor));
+    border-radius:6px;transition:transform .35s cubic-bezier(.65,0,.35,1);
+    box-shadow:0 0 18px rgba(232,163,61,0.35);
+  }
+  .segmented button.active ~ .thumb{}
+
+  .stats{display:flex;gap:0;margin-left:8px;}
+  .stat{
+    display:flex;flex-direction:column;align-items:flex-end;gap:1px;
+    padding:0 16px;border-left:1px solid var(--wire);
+    min-width:78px;
+  }
+  .stat .n{font-family:var(--mono);font-weight:700;font-size:19px;color:var(--ink);line-height:1;transition:color .3s;}
+  .stat .n.flag{color:var(--alert);}
+  .stat .l{font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ghost);text-transform:uppercase;margin-top:3px;}
+
+  /* ===== LAYOUT ===== */
+  .layout{
+    display:grid;
+    grid-template-columns:270px 1fr 350px;
+    min-height:0;
+  }
+  .sidebar{
+    background:var(--panel);
+    border-right:1px solid var(--wire);
+    display:flex;flex-direction:column;
+    min-height:0;
+  }
+  .sidebar.right{border-right:none;border-left:1px solid var(--wire);}
+  .sb-section{padding:16px 16px 10px;}
+  .sb-title{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;color:var(--phosphor-dim);
+    text-transform:uppercase;margin:0 0 10px;display:flex;align-items:center;gap:8px;
+  }
+  .sb-title::before{content:'';width:6px;height:6px;background:var(--phosphor-dim);border-radius:1px;transform:rotate(45deg);}
+
+  .search-box{
+    position:relative;
+  }
+  .search-box input{
+    width:100%;background:var(--void);border:1px solid var(--wire);color:var(--ink);
+    font-family:var(--mono);font-size:12.5px;padding:10px 12px 10px 30px;border-radius:6px;
+    outline:none;transition:border-color .2s;
+  }
+  .search-box input:focus{border-color:var(--phosphor-dim);}
+  .search-box input::placeholder{color:var(--ghost);}
+  .search-box .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ghost);font-size:13px;}
+  .search-hint{font-size:10.5px;color:var(--ghost);margin-top:7px;line-height:1.5;}
+
+  .hubs-list{flex:1;overflow-y:auto;padding:0 10px 14px;}
+  .hub-item{
+    display:flex;align-items:center;gap:10px;
+    padding:9px 10px;border-radius:7px;cursor:pointer;
+    border:1px solid transparent;transition:background .15s, border-color .15s;
+  }
+  .hub-item:hover{background:var(--panel-2);border-color:var(--wire);}
+  .hub-rank{
+    font-family:var(--mono);font-size:11px;color:var(--void);background:var(--tan-dim);
+    width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    font-weight:700;
+  }
+  .hub-item:nth-child(1) .hub-rank{background:var(--phosphor);}
+  .hub-info{min-width:0;flex:1;}
+  .hub-name{font-size:12.5px;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .hub-meta{font-family:var(--mono);font-size:10px;color:var(--ghost);}
+  .hub-score{font-family:var(--mono);font-size:11px;color:var(--phosphor);font-weight:600;}
+
+  .legend{padding:12px 16px 16px;border-top:1px solid var(--wire);}
+  .legend-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--ink-dim);margin-bottom:6px;}
+  .legend-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+  .legend-line{width:16px;height:0;border-top:2px dashed var(--alert);flex-shrink:0;}
+
+  /* ===== GRAPH ===== */
+  .graph-wrap{position:relative;background:
+    radial-gradient(ellipse at 30% 20%, rgba(232,163,61,0.05), transparent 45%),
+    radial-gradient(ellipse at 80% 80%, rgba(76,139,245,0.04), transparent 50%),
+    var(--void);
+    min-height:0;overflow:hidden;
+  }
+  svg{width:100%;height:100%;display:block;cursor:grab;}
+  svg:active{cursor:grabbing;}
+  .node circle{cursor:pointer;transition:stroke .15s, stroke-width .15s;}
+  .node text{
+    font-family:var(--mono);font-size:9.5px;fill:var(--ink-dim);pointer-events:none;
+    paint-order:stroke;stroke:var(--void);stroke-width:3px;
+    opacity:0;transition:opacity .15s;
+  }
+  .node:hover text{opacity:1;}
+  .node.hub-node text{opacity:0.8;}
+  .node.glow text{opacity:1;fill:var(--ink);}
+  .link{stroke:var(--wire);stroke-opacity:0.55;}
+  .link.hidden-link{stroke:var(--alert);stroke-dasharray:4 3;}
+  .dim{opacity:0.08 !important;}
+  .glow{filter:drop-shadow(0 0 6px rgba(232,163,61,0.65));}
+
+  .graph-footer-tag{
+    position:absolute;left:16px;bottom:14px;z-index:5;
+    font-family:var(--mono);font-size:9.5px;color:var(--ghost);letter-spacing:0.04em;
+    background:rgba(10,11,13,0.7);padding:5px 9px;border-radius:5px;border:1px solid var(--wire);
+    max-width:280px;line-height:1.5;
+  }
+  .zoom-controls{position:absolute;right:16px;bottom:14px;z-index:5;display:flex;gap:6px;}
+  .zoom-controls button{
+    width:30px;height:30px;border-radius:6px;border:1px solid var(--wire);background:var(--panel);
+    color:var(--ink-dim);font-family:var(--mono);font-size:14px;cursor:pointer;
+  }
+  .zoom-controls button:hover{color:var(--phosphor);border-color:var(--phosphor-dim);}
+
+  .trace-banner{
+    position:absolute;top:16px;left:50%;transform:translateX(-50%) translateY(-140%);
+    background:var(--alert-soft);border:1px solid var(--alert);color:var(--ink);
+    font-family:var(--mono);font-size:11.5px;padding:9px 16px;border-radius:7px;
+    display:flex;align-items:center;gap:10px;z-index:6;transition:transform .35s cubic-bezier(.4,0,.2,1);
+    box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  }
+  .trace-banner.show{transform:translateX(-50%) translateY(0);}
+  .trace-banner button{
+    appearance:none;border:1px solid var(--alert);background:transparent;color:var(--ink);
+    font-family:var(--mono);font-size:10px;padding:4px 9px;border-radius:5px;cursor:pointer;letter-spacing:0.04em;
+  }
+  .trace-banner button:hover{background:var(--alert);}
+
+  /* ===== FLAGGED LINKS PANEL ===== */
+  .flag-list{flex:1;overflow-y:auto;padding:0 14px 16px;display:flex;flex-direction:column;gap:10px;}
+  .flag-card{
+    background:var(--panel-2);border:1px solid var(--wire);border-left:3px solid var(--alert);
+    border-radius:6px;padding:12px 13px;
+  }
+  .flag-card .conf{
+    display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:0.08em;
+    padding:2px 7px;border-radius:3px;text-transform:uppercase;margin-bottom:8px;font-weight:700;
+  }
+  .conf.high{background:rgba(196,69,58,0.22);color:#e58077;}
+  .conf.medium{background:rgba(232,163,61,0.18);color:var(--phosphor);}
+  .conf.low{background:rgba(107,114,128,0.22);color:var(--ink-dim);}
+  .flag-card .names{font-size:12.5px;color:var(--ink);font-weight:600;margin-bottom:5px;line-height:1.5;}
+  .flag-card .reason{font-size:11.5px;color:var(--ink-dim);line-height:1.55;margin-bottom:10px;}
+  .flag-card .reason b{color:var(--tan);font-weight:600;}
+  .flag-card .trace-btn{
+    width:100%;appearance:none;border:1px solid var(--wire);background:var(--void);
+    color:var(--phosphor);font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;
+    padding:7px;border-radius:5px;cursor:pointer;text-transform:uppercase;transition:all .15s;
+  }
+  .flag-card .trace-btn:hover{border-color:var(--phosphor-dim);background:rgba(232,163,61,0.08);}
+
+  .empty-flag{padding:30px 20px;text-align:center;color:var(--ghost);font-size:12px;line-height:1.7;}
+
+  /* ===== DOSSIER OVERLAY ===== */
+  .dossier{
+    position:absolute;inset:0;background:var(--tan);color:#231f18;
+    transform:translateX(105%);transition:transform .4s cubic-bezier(.4,0,.2,1);
+    display:flex;flex-direction:column;z-index:10;
+    box-shadow:-12px 0 30px rgba(0,0,0,0.4);
+  }
+  .dossier.open{transform:translateX(0);}
+  .dossier-head{
+    padding:16px 18px 12px;border-bottom:2px solid #231f18;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    background:repeating-linear-gradient(135deg, rgba(0,0,0,0.03) 0 2px, transparent 2px 14px);
+  }
+  .dossier-stamp{font-family:var(--mono);font-size:9.5px;letter-spacing:0.14em;color:#8a2f27;text-transform:uppercase;font-weight:700;}
+  .dossier-close{
+    appearance:none;border:1px solid #231f18;background:transparent;color:#231f18;
+    width:26px;height:26px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;
+  }
+  .dossier-close:hover{background:#231f18;color:var(--tan);}
+  .dossier-name{font-family:var(--mono);font-size:20px;font-weight:700;margin:8px 0 2px;}
+  .dossier-alias{font-size:12px;color:#5c5343;font-style:italic;}
+  .dossier-body{flex:1;overflow-y:auto;padding:16px 18px 24px;}
+  .dossier-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin-bottom:18px;}
+  .dfield{border-bottom:1px solid rgba(35,31,24,0.2);padding-bottom:7px;}
+  .dfield .dl{font-family:var(--mono);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#7a705c;margin-bottom:3px;}
+  .dfield .dv{font-family:var(--mono);font-size:12.5px;color:#231f18;font-weight:600;}
+  .dsection{margin-bottom:18px;}
+  .dsection h4{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.1em;text-transform:uppercase;
+    color:#5c5343;margin:0 0 9px;padding-bottom:6px;border-bottom:1px solid rgba(35,31,24,0.25);
+  }
+  .case-row{font-size:12px;padding:7px 0;border-bottom:1px dashed rgba(35,31,24,0.18);}
+  .case-row .ctype{font-weight:600;}
+  .case-row .cmeta{font-family:var(--mono);font-size:10.5px;color:#5c5343;}
+  .conn-chip{
+    display:inline-flex;align-items:center;gap:5px;background:rgba(35,31,24,0.08);
+    border:1px solid rgba(35,31,24,0.2);padding:5px 10px;border-radius:14px;font-size:11.5px;
+    margin:0 6px 6px 0;cursor:pointer;transition:background .15s;
+  }
+  .conn-chip:hover{background:rgba(35,31,24,0.16);}
+  .signal-note{
+    background:rgba(196,69,58,0.1);border:1px solid rgba(196,69,58,0.4);border-radius:6px;
+    padding:10px 11px;font-size:11.5px;line-height:1.55;color:#5e2018;
+  }
+
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--wire);border-radius:4px;}
+  .dossier ::-webkit-scrollbar-thumb{background:rgba(35,31,24,0.25);}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition-duration:0.01ms !important; animation-duration:0.01ms !important;}
+  }
+</style>
+</head>
+<body>
+
+<div class="noise-layer"></div>
+
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="stamp">Ministry of Home Affairs // Demo Build</div>
+      <h1>OPERATION <span>DRAGNET</span></h1>
+      <div class="sub">Cross-Case Criminal Network Intelligence</div>
+    </div>
+
+    <div class="toggle-wrap">
+      <span class="toggle-label">Network View</span>
+      <div class="segmented" id="segmented">
+        <button id="btnKnown" class="active">Known Case Links</button>
+        <button id="btnFull">+ AI-Discovered Links</button>
+        <div class="thumb" id="thumb"></div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="statCases">–</div><div class="l">Cases</div></div>
+      <div class="stat"><div class="n" id="statPersons">–</div><div class="l">Persons</div></div>
+      <div class="stat"><div class="n" id="statLinks">–</div><div class="l">Active Links</div></div>
+      <div class="stat"><div class="n flag" id="statFlagged">–</div><div class="l">Flagged</div></div>
+      <div class="stat"><div class="n" id="statClusters">–</div><div class="l">Clusters</div></div>
+    </div>
+  </div>
+
+  <div class="layout">
+
+    <div class="sidebar left">
+      <div class="sb-section">
+        <div class="sb-title">Lookup</div>
+        <div class="search-box">
+          <span class="ic">⌕</span>
+          <input id="searchInput" type="text" placeholder="Name, phone, vehicle, address…" autocomplete="off">
+        </div>
+        <div class="search-hint">Search across persons, case records, and linked attributes.</div>
+      </div>
+      <div class="sb-section" style="border-top:1px solid var(--wire);padding-top:14px;">
+        <div class="sb-title">Connection Path Finder</div>
+        <input id="pathPersonA" list="personNamesList" type="text" placeholder="Person A" autocomplete="off"
+          style="width:100%;background:var(--void);border:1px solid var(--wire);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:6px;outline:none;margin-bottom:6px;">
+        <input id="pathPersonB" list="personNamesList" type="text" placeholder="Person B" autocomplete="off"
+          style="width:100%;background:var(--void);border:1px solid var(--wire);color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:6px;outline:none;margin-bottom:8px;">
+        <datalist id="personNamesList"></datalist>
+        <button id="pathFindBtn" style="width:100%;appearance:none;border:1px solid var(--phosphor-dim);background:rgba(232,163,61,0.1);color:var(--phosphor);font-family:var(--mono);font-size:11px;letter-spacing:0.05em;text-transform:uppercase;padding:8px;border-radius:6px;cursor:pointer;">Trace Path Between Them</button>
+        <div id="pathFindMsg" style="font-size:10.5px;margin-top:7px;line-height:1.5;min-height:14px;"></div>
+      </div>
+      <div class="sb-section" style="padding-bottom:6px;">
+        <div class="sb-title">Top Network Hubs</div>
+      </div>
+      <div class="hubs-list" id="hubsList"></div>
+      <div class="legend" id="legend">
+        <div class="sb-title" style="margin-bottom:9px;">Legend</div>
+      </div>
+    </div>
+
+    <div class="graph-wrap">
+      <svg id="graphSvg"></svg>
+      <div class="trace-banner" id="traceBanner">
+        <span id="traceText"></span>
+        <button id="traceClear">Clear</button>
+      </div>
+      <div class="graph-footer-tag">Synthetic demonstration data — no real case, personal, or investigative records used.</div>
+      <div class="zoom-controls">
+        <button id="zoomIn">+</button>
+        <button id="zoomReset">⤢</button>
+        <button id="zoomOut">–</button>
+      </div>
+    </div>
+
+    <div class="sidebar right" style="position:relative;">
+      <div class="sb-section">
+        <div class="sb-title">Flagged Cross-Case Links</div>
+      </div>
+      <div class="flag-list" id="flagList"></div>
+
+      <div class="dossier" id="dossier">
+        <div class="dossier-head">
+          <div>
+            <div class="dossier-stamp">Person of Interest — Case File</div>
+            <div class="dossier-name" id="dName"></div>
+            <div class="dossier-alias" id="dAlias"></div>
+          </div>
+          <button class="dossier-close" id="dossierClose">✕</button>
+        </div>
+        <div style="padding:12px 18px 0;">
+          <button id="dossierReportBtn" style="width:100%;appearance:none;border:1.5px solid #231f18;background:#231f18;color:#d9d0ba;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;padding:10px;border-radius:5px;cursor:pointer;">⬇ Download Full Dossier Report</button>
+        </div>
+        <div class="dossier-body" id="dossierBody"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   SEEDED RNG — keeps the "discovered network" story identical
+   every time this file is opened (important for live demos).
+========================================================= */
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(20260829);
+const rInt = (a,b)=> a + Math.floor(rng()*(b-a+1));
+const rPick = (arr)=> arr[Math.floor(rng()*arr.length)];
+function rSample(arr, n){
+  const pool = arr.slice(); const out=[];
+  while(out.length<n && pool.length){ out.push(pool.splice(Math.floor(rng()*pool.length),1)[0]); }
+  return out;
+}
+
+/* =========================================================
+   REFERENCE DATA
+========================================================= */
+const FIRST = ["Rohan","Aman","Vikram","Suresh","Rakesh","Sanjay","Arjun","Deepak","Manoj","Ravi","Ajay","Naveen","Farhan","Imran","Salim","Zubair","Karan","Vivek","Anil","Pankaj","Yusuf","Iqbal","Rajesh","Prakash","Dinesh","Harish","Mahesh","Sunil","Tarun","Gopal","Waseem","Nikhil","Amit","Firoz","Digvijay","Shankar","Altaf","Ramesh","Kunal","Ashok"];
+const FEMALE_FIRST = ["Priya","Anjali","Sunita","Rekha","Meena","Kavita","Neha","Pooja","Shabana","Farida","Geeta","Nisha","Rani","Asha","Deepa","Sarita"];
+const LAST = ["Sharma","Verma","Yadav","Khan","Chauhan","Mehta","Gupta","Reddy","Nair","Iyer","Malhotra","Kapoor","Joshi","Rana","Pillai","Shaikh","Ansari","Bhatt","Rathi","Solanki","Dutta","Sengupta","Chowdhury","Bhosale","Naik","Qureshi","Thakur","Bora","Pawar","Sinha"];
+const ALIASES = ["Bhai","Tiger","Chhota","Pandit","Sikandar","Bull","Guru","Shooter","Munna","Langda","Master","Don","Sultan","Bhura","Kaancha"];
+const LOCALITIES = ["Dwarka, New Delhi","Andheri, Mumbai","Kandivali, Mumbai","Salt Lake, Kolkata","Banjara Hills, Hyderabad","Indiranagar, Bengaluru","Sector 62, Noida","Vasant Kunj, New Delhi","Kothrud, Pune","Anna Nagar, Chennai","Malviya Nagar, Jaipur","Gomti Nagar, Lucknow","Hazratganj, Lucknow","Panvel, Navi Mumbai","Behala, Kolkata","Vastrapur, Ahmedabad","Sadar Bazaar, Kanpur","Alambagh, Lucknow"];
+const CASE_TYPES = ["Narcotics Trafficking","Extortion Racket","Cybercrime & Financial Fraud","Organized Vehicle Theft","Illegal Arms Trade","Human Trafficking","Smuggling — Contraband Goods","Money Laundering","Kidnapping for Ransom","Counterfeit Currency Racket","Land Mafia Intimidation","Bootlegging Operation"];
+const STATE_CODES = ["MH","DL","UP","WB","KA","TN","RJ","GJ"];
+const OCCUPATIONS = ["Auto Parts Dealer","Real Estate Broker (unregistered)","Scrap Metal Trader","Long-Haul Truck Driver","Mobile Repair Shop Owner","Unemployed","Daily Wage Labourer","Import-Export Consultant","Cab Driver","Grocery Store Owner","Scrap Dealer","Cattle Trader","Electronics Wholesaler","Construction Contractor","Courier Agent","Small Hotel Owner","Second-hand Vehicle Dealer","Currency Exchange Agent"];
+const MEDICAL = ["None on record","Type 2 Diabetes","Hypertension","Old gunshot wound (left shoulder), partially healed","Chronic lower-back pain","Asthma, mild","Under psychiatric evaluation for stress-related disorder","Substance dependency — under treatment","Hearing impairment (right ear)","Prior surgery — appendectomy (2019)","Tuberculosis, treated 2021"];
+const HANGOUTS = ["Shyam Dhaba, GT Road","Rangoli Tea Stall","Sunrise Gym & Fitness","New Star Snooker Club","Al-Madina Restaurant","City Bus Stand, Platform 3","Krishna Motors Garage","Old Bus Depot Market","Al Karim Meat Market","Green Park Cricket Ground","Shanti Lodge","National Highway Dhaba, Km 42","Ganesh Paan Shop","Riverside Ghat","Sector Market Chowk"];
+const PRIOR_OFFENSES = ["Petty Theft","Public Nuisance","Illegal Possession of Arms","Assault","Trespassing","Cheque Bounce / Forgery","Rash Driving Causing Injury","Illegal Gambling (Satta)","Breach of Peace","Receiving Stolen Property","Impersonation","Unlawful Assembly"];
+const OUTCOMES = ["Convicted — served sentence","Acquitted (insufficient evidence)","Case Withdrawn","Under Trial","Convicted — fine imposed","Charges Dropped"];
+const STATUSES = ["Absconding","In Judicial Custody","Out on Bail","Under Surveillance","Wanted — Non-Bailable Warrant"];
+const RELATION_TAGS = ["no known record","1 prior minor offense","under local police watch","deceased","settled abroad"];
+
+let PID = 0;
+function makePerson(overrides){
+  const first = rPick(FIRST), last = rPick(LAST);
+  const age = rInt(19,58);
+  const birthYear = 2026 - age;
+  const numPrior = rng()<0.55 ? rInt(1,3) : 0;
+  const priorRecord = [];
+  for(let i=0;i<numPrior;i++){
+    priorRecord.push({ year: rInt(2015, 2023), offense: rPick(PRIOR_OFFENSES), outcome: rPick(OUTCOMES) });
+  }
+  priorRecord.sort((a,b)=>a.year-b.year);
+  const numSiblings = rInt(0,3);
+  const siblings = [];
+  for(let i=0;i<numSiblings;i++){
+    const relation = rPick(['Elder Brother','Younger Brother','Elder Sister','Younger Sister']);
+    const isSister = relation.includes('Sister');
+    siblings.push({ name: (isSister ? rPick(FEMALE_FIRST) : rPick(FIRST))+' '+last, relation, note: rPick(RELATION_TAGS) });
+  }
+  const p = {
+    id: 'P'+(PID++),
+    name: first+' '+last,
+    alias: rng()<0.3 ? rPick(ALIASES) : null,
+    age, birthYear,
+    phone: '+91 9'+String(rInt(100000000,999999999)).slice(0,8),
+    vehicle: rng()<0.4 ? `${rPick(STATE_CODES)}-${rInt(1,60).toString().padStart(2,'0')}-${String.fromCharCode(65+rInt(0,25))}${String.fromCharCode(65+rInt(0,25))}-${rInt(1000,9999)}` : null,
+    address: `${rInt(1,220)}, ${rPick(LOCALITIES)}`,
+    bank: rng()<0.5 ? `••••${rInt(1000,9999)} (${rPick(['SBI','HDFC','ICICI','PNB','Axis'])})` : null,
+    occupation: rPick(OCCUPATIONS),
+    medical: rng()<0.35 ? rPick(MEDICAL.slice(1)) : 'None on record',
+    hangouts: rSample(HANGOUTS, rInt(2,3)),
+    status: rPick(STATUSES),
+    siblings,
+    priorRecord,
+    mostFrequentContact: null, // filled in after the direct-edge graph is built
+    cases: []
+  };
+  return Object.assign(p, overrides||{});
+}
+function makeCase(id, type, loc, accusedIds){
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return { id, type, loc, date:`${rInt(1,28)} ${rPick(months)} ${rPick([2024,2025])}`, accused: accusedIds };
+}
+
+/* =========================================================
+   SCENARIO-SEEDED PERSONS (guaranteed narrative)
+========================================================= */
+const persons = [];
+const cases = [];
+
+// --- Scenario A: The Financier (shared bank account) ---
+const pA0 = makePerson({name:'Ratan Solanki', alias:'Guru'});      // Delhi narcotics hub
+const pA1 = makePerson({});
+const pA2 = makePerson({});
+const pA3 = makePerson({});
+persons.push(pA0,pA1,pA2,pA3);
+cases.push(makeCase('FIR-2024-1187','Narcotics Trafficking','Dwarka, New Delhi',[pA0.id,pA1.id,pA2.id,pA3.id]));
+
+const pA4 = makePerson({name:'Salim Ansari', alias:'Tiger'});     // Mumbai extortion hub
+const pA5 = makePerson({});
+const pA6 = makePerson({});
+persons.push(pA4,pA5,pA6);
+cases.push(makeCase('FIR-2024-2033','Extortion Racket','Andheri, Mumbai',[pA4.id,pA5.id,pA6.id]));
+// force shared bank account — never co-accused, different cities, different case types
+pA0.bank = '••••7741 (SBI)'; pA4.bank = '••••7741 (SBI)';
+
+// --- Scenario B: The Getaway Vehicle ---
+const pB0 = makePerson({name:'Iqbal Shaikh'});
+const pB1 = makePerson({});
+const pB2 = makePerson({});
+persons.push(pB0,pB1,pB2);
+cases.push(makeCase('FIR-2024-3355','Organized Vehicle Theft','Kandivali, Mumbai',[pB0.id,pB1.id,pB2.id]));
+
+const pB3 = makePerson({name:'Vikram Chauhan'});
+const pB4 = makePerson({});
+const pB5 = makePerson({});
+persons.push(pB3,pB4,pB5);
+cases.push(makeCase('FIR-2025-0417','Kidnapping for Ransom','Sector 62, Noida',[pB3.id,pB4.id,pB5.id]));
+pB0.vehicle = 'MH-04-BT-8823'; pB3.vehicle = 'MH-04-BT-8823';
+
+// --- Scenario C: The Safe House ---
+const pC0 = makePerson({name:'Farhan Khan'});
+const pC1 = makePerson({});
+const pC2 = makePerson({});
+persons.push(pC0,pC1,pC2);
+cases.push(makeCase('FIR-2024-4410','Smuggling — Contraband Goods','Panvel, Navi Mumbai',[pC0.id,pC1.id,pC2.id]));
+
+const pC3 = makePerson({name:'Zubair Rathi'});
+const pC4 = makePerson({});
+const pC5 = makePerson({});
+persons.push(pC3,pC4,pC5);
+cases.push(makeCase('FIR-2025-0788','Human Trafficking','Behala, Kolkata',[pC3.id,pC4.id,pC5.id]));
+pC0.address = '14, Sundar Nagar Colony, Panvel'; pC3.address = '14, Sundar Nagar Colony, Panvel';
+
+// --- Scenario D: The Burner Phone (shared phone number) ---
+const pD0 = makePerson({name:'Rajesh Nair'});
+const pD1 = makePerson({});
+const pD2 = makePerson({});
+persons.push(pD0,pD1,pD2);
+cases.push(makeCase('FIR-2024-5521','Cybercrime & Financial Fraud','Indiranagar, Bengaluru',[pD0.id,pD1.id,pD2.id]));
+
+const pD3 = makePerson({name:'Altaf Qureshi'});
+const pD4 = makePerson({});
+const pD5 = makePerson({});
+persons.push(pD3,pD4,pD5);
+cases.push(makeCase('FIR-2025-0912','Counterfeit Currency Racket','Hazratganj, Lucknow',[pD3.id,pD4.id,pD5.id]));
+pD0.phone = '+91 98877 41290'; pD3.phone = '+91 98877 41290';
+
+// --- Scenario E: The Shared Courier Vehicle ---
+const pE0 = makePerson({name:'Digvijay Rana'});
+const pE1 = makePerson({});
+const pE2 = makePerson({});
+persons.push(pE0,pE1,pE2);
+cases.push(makeCase('FIR-2024-6604','Land Mafia Intimidation','Malviya Nagar, Jaipur',[pE0.id,pE1.id,pE2.id]));
+
+const pE3 = makePerson({name:'Naveen Bhosale'});
+const pE4 = makePerson({});
+const pE5 = makePerson({});
+persons.push(pE3,pE4,pE5);
+cases.push(makeCase('FIR-2025-1188','Bootlegging Operation','Kothrud, Pune',[pE3.id,pE4.id,pE5.id]));
+pE0.vehicle = 'RJ-14-CK-3390'; pE3.vehicle = 'RJ-14-CK-3390';
+
+const HIDDEN_EDGES = [
+  { a:pA0.id, b:pA4.id, attr:'bank', confidence:'high',
+    reason:`Identical bank account <b>••••7741 (SBI)</b> was used to route funds from both the ${cases[0].id} narcotics operation and the ${cases[1].id} extortion racket — suggesting a shared financier laundering proceeds across two unrelated rings.` },
+  { a:pB0.id, b:pB3.id, attr:'vehicle', confidence:'medium',
+    reason:`Vehicle registration <b>MH-04-BT-8823</b> appears in both the ${cases[2].id} vehicle-theft case and the ${cases[3].id} kidnapping case, filed 100+ km apart and four months apart.` },
+  { a:pC0.id, b:pC3.id, attr:'address', confidence:'low',
+    reason:`Registered residential address <b>14, Sundar Nagar Colony, Panvel</b> overlaps between a smuggling suspect (${cases[4].id}) and a trafficking suspect (${cases[5].id}) — could indicate a shared safe house, or coincidental co-tenancy. Recommend field verification.` },
+  { a:pD0.id, b:pD3.id, attr:'phone', confidence:'high',
+    reason:`Identical mobile number <b>+91 98877 41290</b> is on record for suspects in both the ${cases[6].id} cybercrime case (Bengaluru) and the ${cases[7].id} counterfeit currency case (Lucknow) — a phone number is a much stronger identity signal than an address, and this pairing spans two states.` },
+  { a:pE0.id, b:pE3.id, attr:'vehicle', confidence:'medium',
+    reason:`Vehicle registration <b>RJ-14-CK-3390</b> is logged in both the ${cases[8].id} land-mafia case (Jaipur) and the ${cases[9].id} bootlegging case (Pune) — consistent with a shared courier vehicle moving between two otherwise unconnected operations.` },
+];
+
+/* =========================================================
+   FILLER NETWORK — bulks up the graph to a realistic scale
+========================================================= */
+const FILLER_CASE_COUNT = 85;
+let reusePool = [];
+for(let i=0;i<FILLER_CASE_COUNT;i++){
+  const size = rInt(2,4);
+  let accused = [];
+  // 22% chance a filler case reuses someone from earlier filler cases -> organic extra links
+  if(reusePool.length && rng()<0.22){
+    accused.push(rPick(reusePool));
+  }
+  while(accused.length<size){
+    const np = makePerson({});
+    persons.push(np);
+    accused.push(np.id);
+  }
+  reusePool = reusePool.concat(accused);
+  const type = rPick(CASE_TYPES);
+  const loc = rPick(LOCALITIES);
+  cases.push(makeCase(`FIR-2025-${String(rInt(1000,9999))}`, type, loc, accused));
+}
+
+// index persons by id + attach case membership
+const personById = {};
+persons.forEach(p=>personById[p.id]=p);
+cases.forEach(c=> c.accused.forEach(pid=> personById[pid].cases.push(c.id)));
+
+/* =========================================================
+   BUILD DIRECT (KNOWN) EDGES — co-accusal in the same FIR
+========================================================= */
+const directEdgeMap = new Map();
+cases.forEach(c=>{
+  for(let i=0;i<c.accused.length;i++){
+    for(let j=i+1;j<c.accused.length;j++){
+      const a=c.accused[i], b=c.accused[j];
+      const key = a<b ? a+'|'+b : b+'|'+a;
+      if(!directEdgeMap.has(key)) directEdgeMap.set(key, {source:a,target:b,type:'direct',cases:[]});
+      directEdgeMap.get(key).cases.push(c.id);
+    }
+  }
+});
+const directEdges = Array.from(directEdgeMap.values());
+
+const hiddenEdges = HIDDEN_EDGES.map(h=>({source:h.a, target:h.b, type:'hidden', confidence:h.confidence, attr:h.attr, reason:h.reason}));
+
+/* =========================================================
+   MOST FREQUENT CONTACT — derived from real edge weights,
+   not flavor text. Falls back to a generated civilian
+   contact only for persons with no recorded co-accusal.
+========================================================= */
+persons.forEach(p=>{
+  const related = directEdges.filter(e=> e.source===p.id || e.target===p.id);
+  if(related.length){
+    const top = related.slice().sort((a,b)=> b.cases.length - a.cases.length)[0];
+    const otherId = top.source===p.id ? top.target : top.source;
+    p.mostFrequentContact = { name: personById[otherId].name, isRecordedAssociate:true, sharedCases: top.cases.length, id: otherId };
+  } else {
+    p.mostFrequentContact = { name: rPick(FIRST)+' '+rPick(LAST), isRecordedAssociate:false, note:'Civilian contact — no criminal record', place: rPick(HANGOUTS) };
+  }
+});
+
+/* =========================================================
+   GRAPH ANALYTICS
+========================================================= */
+function buildAdjacency(edges, nodeIds){
+  const adj = new Map(); nodeIds.forEach(id=>adj.set(id,[]));
+  edges.forEach(e=>{ adj.get(e.source).push(e.target); adj.get(e.target).push(e.source); });
+  return adj;
+}
+function degreeCentrality(adj){
+  const out = {}; adj.forEach((nbrs,id)=> out[id]=nbrs.length); return out;
+}
+// Brandes' algorithm — unweighted betweenness centrality
+function betweennessCentrality(adj, nodeIds){
+  const cb = {}; nodeIds.forEach(id=>cb[id]=0);
+  nodeIds.forEach(s=>{
+    const S=[], P={}, sigma={}, d={};
+    nodeIds.forEach(v=>{P[v]=[]; sigma[v]=0; d[v]=-1;});
+    sigma[s]=1; d[s]=0;
+    const Q=[s];
+    while(Q.length){
+      const v=Q.shift(); S.push(v);
+      (adj.get(v)||[]).forEach(w=>{
+        if(d[w]<0){ Q.push(w); d[w]=d[v]+1; }
+        if(d[w]===d[v]+1){ sigma[w]+=sigma[v]; P[w].push(v); }
+      });
+    }
+    const delta={}; nodeIds.forEach(v=>delta[v]=0);
+    while(S.length){
+      const w=S.pop();
+      P[w].forEach(v=>{ delta[v]+= (sigma[v]/sigma[w]) * (1+delta[w]); });
+      if(w!==s) cb[w]+=delta[w];
+    }
+  });
+  const n=nodeIds.length;
+  const norm = n>2 ? 1/((n-1)*(n-2)) : 1;
+  nodeIds.forEach(id=> cb[id] = cb[id]*norm );
+  return cb;
+}
+// Closeness centrality, with the Wasserman-Faust correction for disconnected
+// graphs (our network is many small case-clusters, not one giant component,
+// so uncorrected closeness would be meaningless for most nodes).
+function closenessCentrality(adj, nodeIds){
+  const out = {};
+  const n = nodeIds.length;
+  nodeIds.forEach(s=>{
+    const dist = {}; nodeIds.forEach(v=>dist[v]=-1);
+    dist[s]=0; const q=[s];
+    while(q.length){
+      const v=q.shift();
+      (adj.get(v)||[]).forEach(w=>{ if(dist[w]<0){ dist[w]=dist[v]+1; q.push(w); } });
+    }
+    let reachCount=0, totalDist=0;
+    nodeIds.forEach(v=>{ if(v!==s && dist[v]>=0){ reachCount++; totalDist+=dist[v]; } });
+    out[s] = (reachCount>0 && n>1) ? (reachCount/(n-1)) * (reachCount/totalDist) : 0;
+  });
+  return out;
+}
+// Label propagation community detection
+function detectCommunities(adj, nodeIds){
+  const label = {}; nodeIds.forEach(id=>label[id]=id);
+  const order = nodeIds.slice();
+  for(let iter=0; iter<25; iter++){
+    // shuffle order deterministically via rng
+    for(let i=order.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
+    let changed=false;
+    order.forEach(id=>{
+      const nbrs = adj.get(id)||[];
+      if(!nbrs.length) return;
+      const counts={};
+      nbrs.forEach(n=>{ counts[label[n]] = (counts[label[n]]||0)+1; });
+      let best=label[id], bestCount=-1;
+      Object.keys(counts).forEach(l=>{ if(counts[l]>bestCount){bestCount=counts[l]; best=l;} else if(counts[l]===bestCount && rng()<0.5){ best=l; } });
+      if(best!==label[id]){ label[id]=best; changed=true; }
+    });
+    if(!changed) break;
+  }
+  // remap labels to small ints ordered by frequency (stable colors)
+  const freq={}; Object.values(label).forEach(l=>freq[l]=(freq[l]||0)+1);
+  const sorted = Object.keys(freq).sort((a,b)=>freq[b]-freq[a]);
+  const remap={}; sorted.forEach((l,i)=>remap[l]=i);
+  const out={}; nodeIds.forEach(id=> out[id]=remap[label[id]]);
+  return out;
+}
+
+const COMMUNITY_COLORS = ['#4C8BF5','#3EC28F','#B983FF','#5AD1E6','#F2617A','#94A3B8','#7C7CE0','#8FBF8F','#E0A5D0','#7FA8A0','#D4A24C','#6FBF73','#C97BD8','#5FA8D3'];
+
+/* =========================================================
+   D3 RENDER SETUP
+========================================================= */
+const svg = d3.select('#graphSvg');
+const zoomLayer = svg.append('g').attr('class','zoom-layer');
+const linkLayer = zoomLayer.append('g').attr('class','link-layer');
+const nodeLayer = zoomLayer.append('g').attr('class','node-layer');
+
+const zoom = d3.zoom().scaleExtent([0.25,3.5])
+  .filter((event)=> !event.button && !(event.target && (event.target.tagName==='circle' || event.target.tagName==='text')))
+  .on('zoom', (ev)=> zoomLayer.attr('transform', ev.transform));
+svg.call(zoom);
+
+let width=0, height=0;
+function measure(){
+  const rect = document.querySelector('.graph-wrap').getBoundingClientRect();
+  width=rect.width; height=rect.height;
+  svg.attr('viewBox', [0,0,width,height]);
+}
+measure();
+window.addEventListener('resize', ()=>{ measure(); sim.force('center', d3.forceCenter(width/2,height/2)); sim.alpha(0.3).restart(); });
+
+const nodesData = persons.map(p=>({...p}));
+const nodeById = {}; nodesData.forEach(n=>nodeById[n.id]=n);
+
+/* =========================================================
+   COMPOSITE THREAT SCORE — computed once on the FULL graph
+   (known + AI-discovered links), independent of whichever
+   view is currently toggled on screen. Weighted blend of
+   three real centrality measures plus documented history.
+========================================================= */
+(function computeThreatScores(){
+  const ids = nodesData.map(n=>n.id);
+  const fullEdgeList = directEdges.concat(hiddenEdges);
+  const adjFull = buildAdjacency(fullEdgeList, ids);
+  const betFull = betweennessCentrality(adjFull, ids);
+  const closeFull = closenessCentrality(adjFull, ids);
+  const degFull = degreeCentrality(adjFull);
+  const maxBet = Math.max(0.0001, ...Object.values(betFull));
+  const maxClose = Math.max(0.0001, ...Object.values(closeFull));
+  const maxDeg = Math.max(1, ...Object.values(degFull));
+  const flaggedIds = new Set(); HIDDEN_EDGES.forEach(h=>{ flaggedIds.add(h.a); flaggedIds.add(h.b); });
+  nodesData.forEach(n=>{
+    const normBet = (betFull[n.id]||0)/maxBet;
+    const normClose = (closeFull[n.id]||0)/maxClose;
+    const normDeg = (degFull[n.id]||0)/maxDeg;
+    const priorFactor = Math.min(1, n.priorRecord.length/3);
+    const flagFactor = flaggedIds.has(n.id) ? 1 : 0;
+    const score = 100 * (0.32*normBet + 0.18*normClose + 0.15*normDeg + 0.15*priorFactor + 0.20*flagFactor);
+    n._threat = Math.round(Math.max(0, Math.min(100, score)));
+    n._betFull = betFull[n.id]||0;
+    n._closeFull = closeFull[n.id]||0;
+  });
+})();
+
+let sim = d3.forceSimulation(nodesData)
+  .force('charge', d3.forceManyBody().strength(-150).distanceMax(520))
+  .force('center', d3.forceCenter(width/2, height/2))
+  .force('collide', d3.forceCollide().radius(d=> d._r+4))
+  .force('link', d3.forceLink([]).id(d=>d.id).distance(60).strength(0.5));
+
+let currentMode = 'known'; // 'known' | 'full'
+let tracedPair = null;
+let searchQuery = '';
+
+function currentEdges(){
+  return currentMode==='full' ? directEdges.concat(hiddenEdges) : directEdges.slice();
+}
+
+function recompute(){
+  const edges = currentEdges();
+  const ids = nodesData.map(n=>n.id);
+  const adj = buildAdjacency(edges, ids);
+  const deg = degreeCentrality(adj);
+  const bet = betweennessCentrality(adj, ids);
+  const close = closenessCentrality(adj, ids);
+  const comm = detectCommunities(adj, ids);
+  const maxBet = Math.max(0.0001, ...Object.values(bet));
+  nodesData.forEach(n=>{
+    n._deg = deg[n.id]||0;
+    n._bet = bet[n.id]||0;
+    n._close = close[n.id]||0;
+    n._comm = comm[n.id]||0;
+    n._r = 6 + Math.sqrt((bet[n.id]||0)/maxBet) * 16;
+  });
+  // connected components count
+  const seen=new Set(); let clusters=0;
+  ids.forEach(id=>{
+    if(seen.has(id)) return; clusters++;
+    const stack=[id]; seen.add(id);
+    while(stack.length){ const v=stack.pop(); (adj.get(v)||[]).forEach(w=>{ if(!seen.has(w)){seen.add(w); stack.push(w);} }); }
+  });
+  return {edges, clusters};
+}
+
+let linkSel, nodeSel;
+
+function render(){
+  const {edges, clusters} = recompute();
+
+  document.getElementById('statCases').textContent = cases.length;
+  document.getElementById('statPersons').textContent = persons.length;
+  document.getElementById('statLinks').textContent = edges.length;
+  document.getElementById('statFlagged').textContent = currentMode==='full' ? hiddenEdges.length : 0;
+  document.getElementById('statClusters').textContent = clusters;
+
+  const linkData = edges.map(e=>({...e}));
+  linkSel = linkLayer.selectAll('line').data(linkData, d=> d.source+'|'+d.target+'|'+d.type);
+  linkSel.exit().remove();
+  const linkEnter = linkSel.enter().append('line')
+    .attr('class', d=> 'link'+(d.type==='hidden' ? ' hidden-link':''))
+    .attr('stroke-width', 1.4);
+  linkSel = linkEnter.merge(linkSel);
+
+  nodeSel = nodeLayer.selectAll('g.node').data(nodesData, d=>d.id);
+  nodeSel.exit().remove();
+  const nodeEnter = nodeSel.enter().append('g').attr('class','node')
+    .call(d3.drag()
+      .on('start', (ev,d)=>{ if(!ev.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag', (ev,d)=>{ d.fx=ev.x; d.fy=ev.y; })
+      .on('end', (ev,d)=>{ if(!ev.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('click', (ev,d)=>{ ev.stopPropagation(); openDossier(d.id); })
+    .on('mouseenter', (ev,d)=> highlightNeighbors(d.id))
+    .on('mouseleave', ()=> clearHighlight());
+  nodeEnter.append('circle');
+  nodeEnter.append('text').attr('dy', d=> -(d._r+6)).attr('text-anchor','middle');
+  nodeSel = nodeEnter.merge(nodeSel);
+
+  nodeSel.select('circle')
+    .attr('r', d=>d._r)
+    .attr('fill', d=> COMMUNITY_COLORS[d._comm % COMMUNITY_COLORS.length])
+    .attr('fill-opacity', 0.88)
+    .attr('stroke', d=> d._bet===Math.max(...nodesData.map(n=>n._bet)) && d._bet>0 ? '#e8a33d' : 'rgba(255,255,255,0.25)')
+    .attr('stroke-width', 1.4);
+  nodeSel.select('text').text(d=> d.name.split(' ')[0]+(d.alias?` "${d.alias}"`:''));
+
+  // Keep only the top-ranked hubs permanently labeled — with 100+ nodes,
+  // labeling everyone at once is unreadable, not "detailed."
+  const hubCount = Math.min(14, Math.ceil(nodesData.length*0.12));
+  const hubIds = new Set(nodesData.slice().sort((a,b)=>b._bet-a._bet).slice(0,hubCount).map(n=>n.id));
+  nodeSel.classed('hub-node', d=> hubIds.has(d.id));
+
+  sim.nodes(nodesData).on('tick', ticked);
+  sim.force('link').links(linkData).distance(d=> d.type==='hidden' ? 150 : 42).strength(d=> d.type==='hidden' ? 0.2 : 0.7);
+  sim.alpha(0.9).restart();
+
+  renderHubs();
+  renderFlagged();
+  renderLegend();
+  applySearchFilter();
+}
+
+function ticked(){
+  // Note: once bound via sim.force('link').links(...), D3 resolves
+  // each link's source/target from string IDs into direct node-object
+  // references — so we read .x/.y straight off them, not via nodeById.
+  linkSel
+    .attr('x1', d=> d.source.x).attr('y1', d=> d.source.y)
+    .attr('x2', d=> d.target.x).attr('y2', d=> d.target.y);
+  nodeSel.attr('transform', d=> `translate(${d.x},${d.y})`);
+}
+
+svg.on('click', ()=>{ clearTrace(); });
+
+/* ===== hover neighbor highlight ===== */
+function highlightNeighbors(id){
+  const connected = new Set([id]);
+  linkSel.each(function(d){
+    const s = d.source.id!==undefined ? d.source.id : d.source;
+    const t = d.target.id!==undefined ? d.target.id : d.target;
+    if(s===id) connected.add(t);
+    if(t===id) connected.add(s);
+  });
+  nodeSel.classed('dim', d=> !connected.has(d.id));
+  linkSel.classed('dim', d=>{
+    const s = d.source.id!==undefined ? d.source.id : d.source;
+    const t = d.target.id!==undefined ? d.target.id : d.target;
+    return s!==id && t!==id;
+  });
+}
+function clearHighlight(){
+  if(tracedPair) return;
+  nodeSel.classed('dim', d=> searchQuery && !matchesSearch(d));
+  linkSel.classed('dim', false);
+}
+
+/* ===== search ===== */
+function matchesSearch(d){
+  if(!searchQuery) return true;
+  const q = searchQuery.toLowerCase();
+  return [d.name, d.alias, d.phone, d.vehicle, d.address, d.bank, ...d.cases].filter(Boolean).some(v=> String(v).toLowerCase().includes(q));
+}
+function applySearchFilter(){
+  if(tracedPair) return;
+  if(!searchQuery){ nodeSel.classed('dim', false).classed('glow', false); linkSel.classed('dim', false); return; }
+  nodeSel.classed('dim', d=> !matchesSearch(d));
+  nodeSel.classed('glow', d=> matchesSearch(d));
+  linkSel.classed('dim', true);
+  const matches = nodesData.filter(matchesSearch);
+  if(matches.length){
+    const xs=matches.map(m=>m.x), ys=matches.map(m=>m.y);
+    focusOn(xs,ys);
+  }
+}
+document.getElementById('searchInput').addEventListener('input', (e)=>{
+  searchQuery = e.target.value.trim();
+  applySearchFilter();
+});
+
+/* ===== zoom controls ===== */
+document.getElementById('zoomIn').onclick = ()=> svg.transition().duration(250).call(zoom.scaleBy, 1.35);
+document.getElementById('zoomOut').onclick = ()=> svg.transition().duration(250).call(zoom.scaleBy, 0.74);
+document.getElementById('zoomReset').onclick = ()=> svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
+function focusOn(xs,ys,pad=140){
+  const x0=Math.min(...xs)-pad, x1=Math.max(...xs)+pad, y0=Math.min(...ys)-pad, y1=Math.max(...ys)+pad;
+  const w = x1-x0, h=y1-y0;
+  const scale = Math.max(0.4, Math.min(2.2, 0.9/Math.max(w/width, h/height)));
+  const tx = width/2 - scale*(x0+x1)/2;
+  const ty = height/2 - scale*(y0+y1)/2;
+  svg.transition().duration(600).call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
+}
+
+/* ===== hubs panel ===== */
+function threatColor(score){
+  return score>=70 ? '#e58077' : score>=40 ? '#e8a33d' : '#8fbf8f';
+}
+function renderHubs(){
+  const top = nodesData.slice().sort((a,b)=> b._bet-a._bet).slice(0,7);
+  const el = document.getElementById('hubsList');
+  el.innerHTML='';
+  top.forEach((p,i)=>{
+    const div = document.createElement('div');
+    div.className='hub-item';
+    div.innerHTML = `<div class="hub-rank">${i+1}</div>
+      <div class="hub-info"><div class="hub-name">${p.name}${p.alias?` <span style="color:var(--ghost)">"${p.alias}"</span>`:''}</div>
+      <div class="hub-meta">${p.cases.length} case${p.cases.length!==1?'s':''} · deg ${p._deg} · <span style="color:${threatColor(p._threat)}">Threat ${p._threat}</span></div></div>
+      <div class="hub-score">${p._bet.toFixed(2)}</div>`;
+    div.onclick = ()=> { openDossier(p.id); focusOn([p.x],[p.y],220); };
+    el.appendChild(div);
+  });
+}
+
+/* ===== legend ===== */
+function renderLegend(){
+  const el = document.getElementById('legend');
+  el.innerHTML = `<div class="sb-title" style="margin-bottom:9px;">Legend</div>`;
+  const commSet = new Set(nodesData.map(n=>n._comm));
+  const rows = Math.min(commSet.size, 5);
+  for(let i=0;i<rows;i++){
+    const row = document.createElement('div'); row.className='legend-row';
+    row.innerHTML = `<span class="legend-dot" style="background:${COMMUNITY_COLORS[i%COMMUNITY_COLORS.length]}"></span> Cluster ${i+1}`;
+    el.appendChild(row);
+  }
+  const row2 = document.createElement('div'); row2.className='legend-row';
+  row2.innerHTML = `<span class="legend-line"></span> AI-discovered link`;
+  el.appendChild(row2);
+}
+
+/* ===== flagged links panel ===== */
+function renderFlagged(){
+  const el = document.getElementById('flagList');
+  el.innerHTML='';
+  if(currentMode!=='full'){
+    el.innerHTML = `<div class="empty-flag">Switch to <b style="color:var(--phosphor)">+ AI-Discovered Links</b> to reveal cross-case connections invisible to standard record lookups.</div>`;
+    return;
+  }
+  HIDDEN_EDGES.forEach(h=>{
+    const pa = personById[h.a], pb = personById[h.b];
+    const card = document.createElement('div'); card.className='flag-card';
+    card.innerHTML = `
+      <span class="conf ${h.confidence}">${h.confidence} confidence</span>
+      <div class="names">${pa.name} ⟷ ${pb.name}</div>
+      <div class="reason">${h.reason}</div>
+      <button class="trace-btn">Trace Connection</button>`;
+    card.querySelector('.trace-btn').onclick = ()=> traceLink(h.a, h.b, h.reason);
+    el.appendChild(card);
+  });
+}
+
+/* ===== trace path (generalized: works for a single edge or a multi-hop path) ===== */
+function applyTrace(idsArray, bannerHtml){
+  tracedPair = idsArray;
+  const idSet = new Set(idsArray);
+  const pairKeys = new Set();
+  for(let i=0;i<idsArray.length-1;i++){
+    pairKeys.add(idsArray[i]+'|'+idsArray[i+1]);
+    pairKeys.add(idsArray[i+1]+'|'+idsArray[i]);
+  }
+  nodeSel.classed('dim', d=> !idSet.has(d.id));
+  nodeSel.classed('glow', d=> idSet.has(d.id));
+  linkSel.classed('dim', d=>{
+    const s = d.source.id!==undefined ? d.source.id : d.source;
+    const t = d.target.id!==undefined ? d.target.id : d.target;
+    return !pairKeys.has(s+'|'+t);
+  });
+  const banner = document.getElementById('traceBanner');
+  document.getElementById('traceText').innerHTML = bannerHtml.replace(/<b>/g,'<b style="color:var(--phosphor)">');
+  banner.classList.add('show');
+  const xs = idsArray.map(id=>nodeById[id].x), ys = idsArray.map(id=>nodeById[id].y);
+  focusOn(xs, ys, 160);
+}
+function traceLink(a,b,reasonHtml){ applyTrace([a,b], reasonHtml); }
+function clearTrace(){
+  if(!tracedPair) return;
+  tracedPair=null;
+  document.getElementById('traceBanner').classList.remove('show');
+  nodeSel.classed('dim', d=> searchQuery && !matchesSearch(d));
+  nodeSel.classed('glow', false);
+  linkSel.classed('dim', false);
+}
+document.getElementById('traceClear').onclick = clearTrace;
+
+/* ===== connection path finder — works across the entire 250+ person network ===== */
+function findPathOnCurrentGraph(startId, endId){
+  const edges = currentEdges();
+  const adjMeta = new Map(); nodesData.forEach(n=>adjMeta.set(n.id,[]));
+  edges.forEach(e=>{ adjMeta.get(e.source).push({to:e.target, edge:e}); adjMeta.get(e.target).push({to:e.source, edge:e}); });
+  const visited = new Set([startId]); const parent = {}; const q=[startId];
+  while(q.length){
+    const cur = q.shift();
+    if(cur===endId) break;
+    adjMeta.get(cur).forEach(({to,edge})=>{ if(!visited.has(to)){ visited.add(to); parent[to]={via:cur,edge}; q.push(to); } });
+  }
+  if(!visited.has(endId)) return null;
+  const path=[endId], edgesUsed=[]; let cur=endId;
+  while(cur!==startId){ const {via,edge}=parent[cur]; edgesUsed.unshift(edge); path.unshift(via); cur=via; }
+  return {path, edgesUsed};
+}
+function resolvePersonInput(text){
+  const m = text.match(/—\s*(P\d+)\s*$/);
+  if(m) return nodeById[m[1]] || null;
+  const q = text.trim().toLowerCase();
+  if(!q) return null;
+  return nodesData.find(n=>n.name.toLowerCase()===q) || nodesData.find(n=>n.name.toLowerCase().includes(q)) || null;
+}
+function runPathFinder(){
+  const msgEl = document.getElementById('pathFindMsg');
+  const a = resolvePersonInput(document.getElementById('pathPersonA').value);
+  const b = resolvePersonInput(document.getElementById('pathPersonB').value);
+  if(!a || !b){ msgEl.textContent = 'Could not match one or both names — pick from the suggestions list.'; msgEl.style.color='var(--alert)'; return; }
+  if(a.id===b.id){ msgEl.textContent = 'Choose two different persons.'; msgEl.style.color='var(--alert)'; return; }
+  const result = findPathOnCurrentGraph(a.id, b.id);
+  if(!result){
+    msgEl.style.color='var(--alert)';
+    msgEl.innerHTML = `No connection found between <b>${a.name}</b> and <b>${b.name}</b> in this view.` + (currentMode==='known' ? ' Try <b style="color:var(--phosphor)">+ AI-Discovered Links</b>.' : ' These individuals sit in fully separate networks.');
+    return;
+  }
+  msgEl.style.color='var(--good)';
+  msgEl.textContent = `Path found — ${result.path.length-1} hop(s).`;
+  const desc = result.edgesUsed.map((e,i)=>{
+    const fromName = nodeById[result.path[i]].name, toName = nodeById[result.path[i+1]].name;
+    const label = e.type==='hidden' ? `<b>AI-discovered link</b> — shared ${e.attr}` : `co-accused in ${e.cases[0]}`;
+    return `${fromName} → ${toName} (${label})`;
+  }).join('  ⟶  ');
+  applyTrace(result.path, desc);
+}
+document.getElementById('pathFindBtn').onclick = runPathFinder;
+
+/* ===== dossier ===== */
+function openDossier(id){
+  const p = personById[id];
+  document.getElementById('dName').textContent = p.name;
+  document.getElementById('dAlias').textContent = p.alias ? `alias "${p.alias}" · Age ${p.age} · ${p.status}` : `Age ${p.age} · ${p.status}`;
+  const n = nodeById[id];
+
+  let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:11px 14px;background:rgba(35,31,24,0.06);border:1px solid rgba(35,31,24,0.2);border-left:4px solid ${threatColor(n._threat)};border-radius:6px;">
+    <div style="font-family:var(--mono);font-size:26px;font-weight:700;color:${threatColor(n._threat)};line-height:1;">${n._threat}</div>
+    <div><div style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:#5c5343;">Composite Threat Score</div>
+    <div style="font-size:10.5px;color:#5c5343;">Weighted: network centrality · prior record · cross-case exposure</div></div></div>`;
+
+  const fields = [
+    ['Phone', p.phone],
+    ['Occupation (Cover)', p.occupation],
+    ['Vehicle', p.vehicle || '— none registered —'],
+    ['Bank Account', p.bank || '— none on record —'],
+    ['Address', p.address],
+    ['Medical Notes', p.medical],
+    ['Betweenness (current view)', n._bet.toFixed(3)+`  (rank ${rankOf(id)} of ${nodesData.length})`],
+    ['Closeness (full network)', n._closeFull.toFixed(3)],
+    ['Network Cluster', 'Cluster '+(n._comm+1)],
+  ];
+  html += `<div class="dossier-grid">` + fields.map(([l,v])=>`<div class="dfield"><div class="dl">${l}</div><div class="dv">${v}</div></div>`).join('') + `</div>`;
+
+  const mfc = p.mostFrequentContact;
+  html += `<div class="dsection"><h4>Most Frequent Contact</h4>
+    <div style="font-size:12.5px;line-height:1.6;">
+      <b>${mfc.name}</b>${mfc.isRecordedAssociate ? ` — co-accused across ${mfc.sharedCases} shared case(s).` : ` — ${mfc.note}. Frequently seen together at <i>${mfc.place}</i>.`}
+    </div></div>`;
+
+  html += `<div class="dsection"><h4>Frequently Visited Locations</h4>
+    ${p.hangouts.map(h=>`<span class="conn-chip" style="cursor:default;">${h}</span>`).join('')}</div>`;
+
+  html += `<div class="dsection"><h4>Family — Siblings (${p.siblings.length})</h4>`;
+  if(!p.siblings.length) html += `<div style="font-size:11.5px;color:#5c5343;">No siblings on record.</div>`;
+  p.siblings.forEach(s=> html += `<div class="case-row"><div class="ctype">${s.name} — ${s.relation}</div><div class="cmeta">${s.note}</div></div>`);
+  html += `</div>`;
+
+  html += `<div class="dsection"><h4>Prior Record (${p.priorRecord.length})</h4>`;
+  if(!p.priorRecord.length) html += `<div style="font-size:11.5px;color:#5c5343;">No prior record on file.</div>`;
+  p.priorRecord.forEach(r=> html += `<div class="case-row"><div class="ctype">${r.offense} (${r.year})</div><div class="cmeta">${r.outcome}</div></div>`);
+  html += `</div>`;
+
+  html += `<div class="dsection"><h4>Linked Cases (${p.cases.length})</h4>`;
+  p.cases.forEach(cid=>{
+    const c = cases.find(cc=>cc.id===cid);
+    html += `<div class="case-row"><div class="ctype">${c.type}</div><div class="cmeta">${c.id} · ${c.loc} · ${c.date}</div></div>`;
+  });
+  html += `</div>`;
+
+  const directConns = new Set();
+  directEdges.forEach(e=>{ if(e.source===id) directConns.add(e.target); if(e.target===id) directConns.add(e.source); });
+  html += `<div class="dsection"><h4>Direct Connections (${directConns.size})</h4>`;
+  if(directConns.size===0) html += `<div style="font-size:11.5px;color:#5c5343;">No co-accused on record.</div>`;
+  Array.from(directConns).forEach(cid=>{
+    html += `<span class="conn-chip" data-jump="${cid}">${personById[cid].name}</span>`;
+  });
+  html += `</div>`;
+
+  const relatedHidden = HIDDEN_EDGES.filter(h=> h.a===id || h.b===id);
+  if(relatedHidden.length){
+    html += `<div class="dsection"><h4>Cross-Case Signal</h4>`;
+    relatedHidden.forEach(h=>{
+      if(currentMode==='full'){
+        html += `<div class="signal-note">${h.reason}</div>`;
+      } else {
+        html += `<div class="signal-note">A potential cross-case signal exists for this person. Switch to <b>+ AI-Discovered Links</b> to view details.</div>`;
+      }
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('dossierBody').innerHTML = html;
+  document.querySelectorAll('.conn-chip[data-jump]').forEach(chip=>{
+    chip.onclick = ()=> openDossier(chip.getAttribute('data-jump'));
+  });
+  document.getElementById('dossier').classList.add('open');
+  document.getElementById('dossierReportBtn').onclick = ()=> downloadReport(id);
+}
+document.getElementById('dossierClose').onclick = ()=> document.getElementById('dossier').classList.remove('open');
+
+function rankOf(id){
+  const sorted = nodesData.slice().sort((a,b)=>b._bet-a._bet);
+  return sorted.findIndex(n=>n.id===id)+1;
+}
+
+/* =========================================================
+   REPORT ENGINE — full-graph network trace + narrative
+========================================================= */
+function fullGraphBetweenness(){
+  const ids = persons.map(pp=>pp.id);
+  const edges = directEdges.concat(hiddenEdges);
+  const adj = buildAdjacency(edges, ids);
+  return betweennessCentrality(adj, ids);
+}
+
+function bfsFullComponent(personId){
+  const edges = directEdges.concat(hiddenEdges);
+  const adjMeta = new Map(); persons.forEach(pp=>adjMeta.set(pp.id,[]));
+  edges.forEach(e=>{
+    adjMeta.get(e.source).push({to:e.target, edge:e});
+    adjMeta.get(e.target).push({to:e.source, edge:e});
+  });
+  const visited = new Set([personId]);
+  const parent = {};
+  const order = [personId];
+  const queue = [personId];
+  while(queue.length){
+    const cur = queue.shift();
+    adjMeta.get(cur).forEach(({to,edge})=>{
+      if(!visited.has(to)){ visited.add(to); parent[to]={via:cur, edge}; order.push(to); queue.push(to); }
+    });
+  }
+  return {order, parent};
+}
+
+function describePath(targetId, parent, personId){
+  const chain=[]; let cur=targetId;
+  while(cur!==personId){
+    const {via,edge}=parent[cur];
+    const label = edge.type==='hidden' ? `AI-discovered link — shared ${edge.attr}` : `co-accused in ${edge.cases[0]}`;
+    chain.unshift({from:via, to:cur, label});
+    cur = via;
+  }
+  if(chain.length===1) return `Direct connection — ${chain[0].label}.`;
+  return chain.map(step=> `${personById[step.from].name} → ${personById[step.to].name} (${step.label})`).join('  ⟶  ');
+}
+
+function investigatorAssessment(p, n, directCount, ownFlags, networkFlagCount){
+  const score = n._threat;
+  const riskPhrase = score>=70 ? 'very high' : score>=40 ? 'elevated' : score>=20 ? 'moderate' : 'low';
+  let text = `Subject carries a composite Threat Score of <b>${score}/100</b> (${riskPhrase}), derived from betweenness, closeness, and degree centrality across the full known-plus-discovered network, weighted alongside prior record and cross-case exposure. Subject has ${directCount} recorded direct connection(s) across ${p.cases.length} case(s). `;
+  if(ownFlags.length){
+    text += `The subject is a direct endpoint of <b>${ownFlags.length} AI-discovered cross-case link(s)</b>, indicating probable involvement spanning more than one investigation. `;
+  } else if(networkFlagCount>0){
+    text += `While no cross-case signal directly implicates the subject, <b>${networkFlagCount} such signal(s)</b> exist elsewhere within the subject's extended network, warranting monitoring of associated contacts. `;
+  } else {
+    text += `No cross-case signals are currently associated with the subject's network. `;
+  }
+  if(p.priorRecord.length>=2){
+    text += `A documented prior record spanning ${p.priorRecord.length} prior offense(s) suggests an established pattern of activity predating current case involvement. `;
+  } else if(p.priorRecord.length===1){
+    text += `One prior offense is on record. `;
+  }
+  text += `<br><br><b>Recommended action:</b> ${ (riskPhrase==='very high'||riskPhrase==='elevated') ? 'Prioritize for financial and communication-record verification; cross-reference associated contacts against other open investigations.' : 'Continue routine monitoring; escalate if new cross-case signals emerge.' }`;
+  return text;
+}
+
+function downloadReport(personId){
+  const p = personById[personId];
+  const n = nodeById[personId];
+  const rank = rankOf(personId);
+  const total = nodesData.length;
+
+  const directConns = new Set();
+  directEdges.forEach(e=>{ if(e.source===personId) directConns.add(e.target); if(e.target===personId) directConns.add(e.source); });
+
+  const ownFlags = HIDDEN_EDGES.filter(h=> h.a===personId || h.b===personId);
+  const {order, parent} = bfsFullComponent(personId);
+  const componentIds = order.slice(1); // excludes self
+  const networkFlags = HIDDEN_EDGES.filter(h=> componentIds.includes(h.a) || componentIds.includes(h.b));
+  const networkFlagCount = networkFlags.filter(h=> !ownFlags.includes(h)).length;
+
+  const fullBet = fullGraphBetweenness();
+  const primeSuspects = componentIds
+    .map(cid=> ({ id:cid, person:personById[cid], bet:fullBet[cid]||0, threat:nodeById[cid]._threat }))
+    .sort((a,b)=> b.threat-a.threat)
+    .slice(0,12);
+
+  const genDate = new Date().toLocaleString('en-IN', { dateStyle:'long', timeStyle:'short' });
+  const reportId = 'DGN-'+personId+'-'+Date.now().toString().slice(-6);
+
+  const css = `
+    *{box-sizing:border-box;}
+    body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#231f18;background:#f3efe4;margin:0;padding:0;}
+    .page{background:#fbf8f0;max-width:850px;margin:26px auto;padding:46px 54px;box-shadow:0 4px 24px rgba(0,0,0,0.12);page-break-after:always;position:relative;}
+    .page:last-child{page-break-after:auto;}
+    .stamp{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#8a2f27;font-weight:700;}
+    .report-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #231f18;padding-bottom:14px;margin-bottom:22px;}
+    .report-header h1{font-family:'IBM Plex Mono',monospace;font-size:22px;margin:6px 0 2px;letter-spacing:0.03em;}
+    .report-meta{text-align:right;font-family:'IBM Plex Mono',monospace;font-size:10px;color:#5c5343;line-height:1.6;}
+    h2.section-title{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:0.1em;text-transform:uppercase;color:#5c5343;border-bottom:1.5px solid #cfc6ac;padding-bottom:7px;margin:26px 0 14px;}
+    .profile-top{display:flex;gap:22px;align-items:center;margin-bottom:10px;}
+    .avatar{width:78px;height:78px;border-radius:6px;background:#231f18;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px 20px;}
+    .f{border-bottom:1px solid #e2dac2;padding-bottom:6px;}
+    .f .l{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:#8a7f63;}
+    .f .v{font-size:13px;font-weight:600;margin-top:2px;}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px;}
+    th{font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:0.06em;text-transform:uppercase;text-align:left;color:#8a7f63;border-bottom:1.5px solid #231f18;padding:6px 8px;}
+    td{font-size:12px;padding:7px 8px;border-bottom:1px solid #e2dac2;vertical-align:top;}
+    .badge{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:2px 8px;border-radius:3px;text-transform:uppercase;font-weight:700;}
+    .badge.high{background:#f0d3cf;color:#8a2f27;}
+    .badge.medium{background:#f3e2c2;color:#8a6428;}
+    .badge.low{background:#e4e1d9;color:#5c5343;}
+    .assess{background:#f0ece0;border:1px solid #cfc6ac;border-left:4px solid #8a2f27;padding:14px 16px;font-size:12.5px;line-height:1.7;border-radius:4px;}
+    .footer-note{position:absolute;bottom:26px;left:54px;right:54px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#8a7f63;border-top:1px solid #cfc6ac;padding-top:8px;}
+    .no-print{position:fixed;top:16px;right:16px;z-index:50;}
+    .no-print button{font-family:'IBM Plex Mono',monospace;font-size:12px;padding:10px 18px;border-radius:6px;border:none;background:#231f18;color:#d9d0ba;cursor:pointer;letter-spacing:0.05em;}
+    .chip{display:inline-block;background:#eee7d3;border:1px solid #cfc6ac;padding:4px 9px;border-radius:12px;font-size:11px;margin:0 5px 5px 0;}
+    ul.plain{margin:0;padding-left:18px;}
+    @media print{ .no-print{display:none;} body{background:#fff;} .page{box-shadow:none;margin:0;max-width:none;} }
+  `;
+
+  const priorRows = p.priorRecord.length
+    ? p.priorRecord.map(r=>`<tr><td>${r.year}</td><td>${r.offense}</td><td>${r.outcome}</td></tr>`).join('')
+    : `<tr><td colspan="3">No prior record on file.</td></tr>`;
+
+  const caseRows = p.cases.map(cid=>{
+    const c = cases.find(cc=>cc.id===cid);
+    const coAccused = c.accused.filter(a=>a!==personId).map(a=>personById[a].name).join(', ') || '—';
+    return `<tr><td>${c.id}</td><td>${c.type}</td><td>${c.loc}</td><td>${c.date}</td><td>${coAccused}</td></tr>`;
+  }).join('');
+
+  const connRows = Array.from(directConns).map(cid=>{
+    const other = personById[cid];
+    const shared = directEdges.find(e=>(e.source===personId&&e.target===cid)||(e.source===cid&&e.target===personId));
+    return `<tr><td>${other.name}${other.alias?` "${other.alias}"`:''}</td><td>${other.status}</td><td>${shared.cases.length} shared case(s)</td><td>Rank ${rankOf(cid)}</td></tr>`;
+  }).join('') || `<tr><td colspan="4">No direct co-accused on record.</td></tr>`;
+
+  const suspectRows = primeSuspects.map(s=>{
+    return `<tr><td>${s.person.name}${s.person.alias?` "${s.person.alias}"`:''}</td><td>${s.person.status}</td><td style="color:${threatColor(s.threat)};font-weight:700;">${s.threat}</td><td style="font-size:10.5px;color:#5c5343;">${describePath(s.id, parent, personId)}</td></tr>`;
+  }).join('') || `<tr><td colspan="4">No other persons found in this subject's connected network.</td></tr>`;
+
+  const ownFlagBlocks = ownFlags.map(h=>{
+    const other = personById[h.a===personId?h.b:h.a];
+    return `<div style="margin-bottom:12px;"><span class="badge ${h.confidence}">${h.confidence} confidence</span><br><b>Linked to: ${other.name}</b><p style="font-size:12px;line-height:1.6;margin:6px 0 0;">${h.reason}</p></div>`;
+  }).join('') || `<p style="font-size:12.5px;color:#5c5343;">No AI-discovered cross-case link is directly associated with this subject.</p>`;
+
+  const siblingRows = p.siblings.length
+    ? p.siblings.map(s=>`<tr><td>${s.name}</td><td>${s.relation}</td><td>${s.note}</td></tr>`).join('')
+    : `<tr><td colspan="3">No siblings on record.</td></tr>`;
+
+  const reportHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Dossier Report — ${p.name}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>${css}</style></head><body>
+
+  <div class="no-print"><button onclick="window.print()">🖨 Print / Save as PDF</button></div>
+
+  <div class="page">
+    <div class="report-header">
+      <div><span class="stamp">Operation Dragnet — Confidential Demonstration Record</span>
+        <h1>${p.name}${p.alias?` "${p.alias}"`:''}</h1>
+        <div style="font-size:12px;color:#5c5343;">Age ${p.age} (b. ${p.birthYear}) · Status: <b>${p.status}</b></div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:32px;font-weight:700;color:${threatColor(n._threat)};line-height:1;">${n._threat}<span style="font-size:13px;color:#8a7f63;">/100</span></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#8a7f63;margin-bottom:8px;">Composite Threat Score</div>
+        <div class="report-meta">Report ID: ${reportId}<br>Generated: ${genDate}<br>Network snapshot: ${total} persons, ${cases.length} cases</div>
+      </div>
+    </div>
+
+    <div class="profile-top">
+      <div class="avatar"><svg width="40" height="40" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" fill="#d9d0ba"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" fill="#d9d0ba"/></svg></div>
+      <div style="font-size:11px;color:#8a7f63;line-height:1.6;">PHOTOGRAPH NOT AVAILABLE<br>DEMONSTRATION RECORD — SYNTHETIC SUBJECT</div>
+    </div>
+
+    <h2 class="section-title">Personal &amp; Contact Details</h2>
+    <div class="grid2">
+      <div class="f"><div class="l">Phone</div><div class="v">${p.phone}</div></div>
+      <div class="f"><div class="l">Occupation (Cover)</div><div class="v">${p.occupation}</div></div>
+      <div class="f"><div class="l">Registered Address</div><div class="v">${p.address}</div></div>
+      <div class="f"><div class="l">Vehicle</div><div class="v">${p.vehicle||'None registered'}</div></div>
+      <div class="f"><div class="l">Bank Account</div><div class="v">${p.bank||'None on record'}</div></div>
+      <div class="f"><div class="l">Medical Notes</div><div class="v">${p.medical}</div></div>
+    </div>
+
+    <h2 class="section-title">Family — Siblings</h2>
+    <table><tr><th>Name</th><th>Relation</th><th>Notes</th></tr>${siblingRows}</table>
+
+    <h2 class="section-title">Network Position &amp; Behavioral Pattern</h2>
+    <div class="grid2">
+      <div class="f"><div class="l">Most Frequent Contact</div><div class="v">${p.mostFrequentContact.name}${p.mostFrequentContact.isRecordedAssociate?` (${p.mostFrequentContact.sharedCases} shared case(s))`:' (civilian, no record)'}</div></div>
+      <div class="f"><div class="l">Network Cluster</div><div class="v">Cluster ${n._comm+1}</div></div>
+      <div class="f"><div class="l">Betweenness Centrality (rank)</div><div class="v">${n._bet.toFixed(3)} — rank ${rank} of ${total}</div></div>
+      <div class="f"><div class="l">Closeness Centrality (full network)</div><div class="v">${n._closeFull.toFixed(3)}</div></div>
+    </div>
+    <div style="margin-top:10px;">${p.hangouts.map(h=>`<span class="chip">${h}</span>`).join('')}</div>
+
+    <div class="footer-note">Synthetic demonstration data — no real case, personal, or investigative records used. Operation Dragnet · Page 1 of 4</div>
+  </div>
+
+  <div class="page">
+    <h2 class="section-title" style="margin-top:0;">Prior Criminal Record</h2>
+    <table><tr><th>Year</th><th>Offense</th><th>Outcome</th></tr>${priorRows}</table>
+
+    <h2 class="section-title">Active / Linked Cases (${p.cases.length})</h2>
+    <table><tr><th>Case ID</th><th>Type</th><th>Location</th><th>Date</th><th>Co-Accused</th></tr>${caseRows}</table>
+
+    <div class="footer-note">Synthetic demonstration data — no real case, personal, or investigative records used. Operation Dragnet · Page 2 of 4</div>
+  </div>
+
+  <div class="page">
+    <h2 class="section-title" style="margin-top:0;">Direct Connections (${directConns.size})</h2>
+    <table><tr><th>Name</th><th>Status</th><th>Relationship</th><th>Centrality Rank</th></tr>${connRows}</table>
+
+    <h2 class="section-title">Prime Suspects in Extended Network</h2>
+    <p style="font-size:11.5px;color:#5c5343;margin:0 0 10px;">All persons reachable from this subject through known or AI-discovered links, ranked by network centrality, with the connection path spelled out.</p>
+    <table><tr><th>Name</th><th>Status</th><th>Threat Score</th><th>Connection Path</th></tr>${suspectRows}</table>
+
+    <div class="footer-note">Synthetic demonstration data — no real case, personal, or investigative records used. Operation Dragnet · Page 3 of 4</div>
+  </div>
+
+  <div class="page">
+    <h2 class="section-title" style="margin-top:0;">Cross-Case Intelligence Signals</h2>
+    ${ownFlagBlocks}
+    ${networkFlagCount>0 ? `<p style="font-size:12px;color:#5c5343;">Additionally, ${networkFlagCount} AI-discovered signal(s) exist elsewhere within this subject's extended network (see Prime Suspects table above for affected individuals).</p>` : ''}
+
+    <h2 class="section-title">Investigator Assessment</h2>
+    <div class="assess">${investigatorAssessment(p, n, directConns.size, ownFlags, networkFlagCount)}</div>
+
+    <div class="footer-note">Synthetic demonstration data — no real case, personal, or investigative records used. Generated by Operation Dragnet, a hackathon demonstration system. Not for operational use. · Page 4 of 4</div>
+  </div>
+
+  </body></html>`;
+
+  const blob = new Blob([reportHtml], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Dragnet_Dossier_${p.name.replace(/\s+/g,'_')}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+/* ===== mode toggle ===== */
+const thumb = document.getElementById('thumb');
+const btnKnown = document.getElementById('btnKnown');
+const btnFull = document.getElementById('btnFull');
+function setMode(mode){
+  currentMode = mode;
+  btnKnown.classList.toggle('active', mode==='known');
+  btnFull.classList.toggle('active', mode==='full');
+  thumb.style.transform = mode==='full' ? 'translateX(100%)' : 'translateX(0%)';
+  clearTrace();
+  render();
+}
+btnKnown.onclick = ()=> setMode('known');
+btnFull.onclick = ()=> setMode('full');
+
+/* ===== init ===== */
+document.getElementById('personNamesList').innerHTML = nodesData
+  .map(n=> `<option value="${n.name}${n.alias?` "${n.alias}"`:''} — ${n.id}">`).join('');
+setMode('known');
+</script>
+</body>
+</html>
